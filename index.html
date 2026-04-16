@@ -36,6 +36,13 @@
             </header>
 
             <div
+                id="skip-warning"
+                class="bg-yellow-800 text-yellow-100 p-3 rounded-md text-sm font-semibold mb-6 hidden"
+            >
+                <!-- Warning message will go here -->
+            </div>
+
+            <div
                 id="dashboard-tab"
                 class="space-y-6 block h-[calc(100vh-10rem)] overflow-y-auto pb-10"
             >
@@ -149,7 +156,8 @@
         </div>
 
         <script>
-            const API_URL = "https://nomiss.onrender.com";
+            const API_URL = "http://127.0.0.1:8000";
+            //const API_URL = "https://nomiss.onrender.com";
             let uploadedBase64 = null;
             let uploadedType = null;
 
@@ -317,7 +325,7 @@
                         <div>
                             <div class="flex justify-between items-start">
                                 <h2 class="text-xl font-bold text-white">${sub.name}</h2>
-                                <button onclick="deleteSubject(${sub.id})" class="text-[10px] text-red-500 font-bold">X</button>
+                                <button onclick="deleteSubject(${sub.id})" class="text-[10px] text-grey-500 font-bold hover:text-red-500">X</button>
                             </div>
                             <p class="text-sm text-gray-400 mt-2">Missed: <span class="text-white font-bold">${sub.skipped}</span> / ${max}</p>
                             <div class="w-full bg-gray-800 rounded-full h-2 mt-3 overflow-hidden">
