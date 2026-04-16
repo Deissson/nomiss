@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Burnout Skipper</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body
+        class="bg-gray-950 text-gray-100 font-sans min-h-screen p-4 sm:p-6 overflow-hidden"
+    >
+        <div class="w-full max-w-7xl mx-auto space-y-6">
+            <header
+                class="border-b border-gray-800 pb-4 flex justify-between items-end"
+            >
+                <div>
+                    <h1 class="text-3xl font-bold text-white">
+                        Burnout Skipper
+                    </h1>
+                    <p class="text-gray-400">Bagrut Attendance Optimizer</p>
+                </div>
+                <div class="flex gap-4">
+                    <button
+                        onclick="switchTab('dashboard-tab')"
+                        id="btn-dashboard"
+                        class="text-blue-500 font-bold border-b-2 border-blue-500 pb-1 px-2 transition"
+                    >
+                        Dashboard
+                    </button>
+                    <button
+                        onclick="switchTab('chat-tab')"
+                        id="btn-chat"
+                        class="text-gray-500 hover:text-gray-300 font-bold border-b-2 border-transparent pb-1 px-2 transition"
+                    >
+                        Catch-Up Tutor
+                    </button>
+                </div>
+            </header>
+
+            <div
+                id="dashboard-tab"
+                class="space-y-6 block h-[calc(100vh-10rem)] overflow-y-auto pb-10"
+            >
+                <div
+                    class="bg-gray-900 border border-gray-800 p-5 rounded-xl flex flex-col sm:flex-row gap-4 sm:items-end"
+                >
+                    <div class="w-full sm:flex-1">
+                        <label class="block text-xs text-gray-400 mb-1"
+                            >Subject Name</label
+                        >
+                        <input
+                            type="text"
+                            id="newName"
+                            placeholder="e.g. Math"
+                            class="w-full bg-gray-800 text-white rounded p-2 border border-gray-700 outline-none capitalize"
+                        />
+                    </div>
+                    <div class="w-full sm:w-32">
+                        <label class="block text-xs text-gray-400 mb-1"
+                            >Total Hours</label
+                        >
+                        <input
+                            type="number"
+                            id="newHours"
+                            placeholder="90"
+                            class="w-full bg-gray-800 text-white rounded p-2 border border-gray-700 outline-none"
+                        />
+                    </div>
+                    <button
+                        onclick="addSubject()"
+                        class="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded transition"
+                    >
+                        Add
+                    </button>
+                </div>
+                <div
+                    id="dashboard"
+                    class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5"
+                ></div>
+            </div>
+
+            <div
+                id="chat-tab"
+                class="hidden h-[calc(100vh-10rem)] flex-col bg-gray-900 border border-gray-800 rounded-xl overflow-hidden"
+            >
+                <div id="chat-history" class="flex-1 p-5 overflow-y-auto">
+                    <div class="flex flex-col items-start mb-4">
+                        <span class="text-xs text-blue-400 mb-1 font-bold ml-1"
+                            >AI Tutor</span
+                        >
+                        <div
+                            class="bg-gray-800 border border-gray-700 p-4 rounded-2xl rounded-tl-sm max-w-[85%] sm:max-w-[70%] text-sm text-gray-200 shadow-md"
+                        >
+                            Upload notes (Images or PDFs) and I'll explain them
+                            using your missed class history.
+                        </div>
+                    </div>
+                </div>
+
+                <div
+                    id="typing-indicator"
+                    class="flex items-center mb-4 ml-4 hidden"
+                >
+                    <span class="text-xs text-gray-400 mb-1 font-bold ml-1"
+                        >AI is typing...</span
+                    >
+                </div>
+
+                <div
+                    class="p-4 bg-gray-950 border-t border-gray-800 flex gap-3 items-center shrink-0"
+                >
+                    <input
+                        type="file"
+                        id="fileInput"
+                        accept="image/*,application/pdf"
+                        class="hidden"
+                        onchange="updateFileLabel()"
+                    />
+                    <button
+                        onclick="document.getElementById('fileInput').click()"
+                        class="p-3 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-400 transition flex items-center justify-center"
+                    >
+                        📎
+                        <span
+                            id="file-label"
+                            class="text-xs ml-2 hidden sm:inline font-bold"
+                            >Attach</span
+                        >
+                    </button>
+                    <input
+                        type="text"
+                        id="chatMessage"
+                        placeholder="Explain the skipped material..."
+                        class="flex-1 bg-gray-800 text-white rounded-lg p-3 border border-gray-700 outline-none"
+                        onkeypress="if (event.key === 'Enter') sendMessage();"
+                    />
+                    <button
+                        onclick="clearChat()"
+                        class="bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded-lg transition"
+                    >
+                        Clear Chat
+                    </button>
+                    <button
+                        onclick="sendMessage()"
+                        class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-lg transition"
+                    >
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            const API_URL = "http://127.0.0.1:8000";
+            let uploadedBase64 = null;
+            let uploadedType = null;
+
+            const CHAT_HISTORY_KEY = "burnoutSkipperChatHistory";
+
+            function formatTimestamp(unixTimestamp) {
+                if (!unixTimestamp) return "Never";
+                const date = new Date(unixTimestamp * 1000); // Convert to milliseconds
+                return date.toLocaleString(); // Format to local date and time string
+            }
+
+            function loadChatHistory() {
+                const history = document.getElementById("chat-history");
+                const savedHistory = localStorage.getItem(CHAT_HISTORY_KEY);
+                if (savedHistory) {
+                    history.innerHTML = savedHistory;
+                    history.scrollTop = history.scrollHeight; // Scroll to bottom
+                }
+            }
+
+            function saveChatHistory() {
+                const history = document.getElementById("chat-history");
+                localStorage.setItem(CHAT_HISTORY_KEY, history.innerHTML);
+            }
+
+            function clearChat() {
+                const history = document.getElementById("chat-history");
+                history.innerHTML = "";
+                localStorage.removeItem(CHAT_HISTORY_KEY);
+                // Optionally add the initial AI message again if desired
+                history.innerHTML = `
+                    <div class="flex flex-col items-start mb-4">
+                        <span class="text-xs text-blue-400 mb-1 font-bold ml-1">AI Tutor</span>
+                        <div class="bg-gray-800 border border-gray-700 p-4 rounded-2xl rounded-tl-sm max-w-[85%] sm:max-w-[70%] text-sm text-gray-200 shadow-md">
+                            Upload notes (Images or PDFs) and I'll explain them using your missed class history.
+                        </div>
+                    </div>`;
+                history.scrollTop = history.scrollHeight;
+            }
+
+            function switchTab(tabId) {
+                const tabs = ["dashboard-tab", "chat-tab"];
+                tabs.forEach((t) => {
+                    document.getElementById(t).classList.add("hidden");
+                    document
+                        .getElementById(t)
+                        .classList.remove("block", "flex");
+                });
+                document.getElementById(tabId).classList.remove("hidden");
+                document
+                    .getElementById(tabId)
+                    .classList.add(tabId === "chat-tab" ? "flex" : "block");
+
+                const isDash = tabId === "dashboard-tab";
+                document.getElementById("btn-dashboard").className = isDash
+                    ? "text-blue-500 font-bold border-b-2 border-blue-500 pb-1 px-2"
+                    : "text-gray-500 font-bold border-b-2 border-transparent pb-1 px-2";
+                document.getElementById("btn-chat").className = !isDash
+                    ? "text-blue-500 font-bold border-b-2 border-blue-500 pb-1 px-2"
+                    : "text-gray-500 font-bold border-b-2 border-transparent pb-1 px-2";
+
+                if (!isDash) {
+                    // When switching to chat tab, ensure history is loaded and scrolled to bottom
+                    loadChatHistory(); // This will load if not already, and scroll to bottom
+                }
+            }
+            function updateFileLabel() {
+                const file = document.getElementById("fileInput").files[0];
+                if (file) {
+                    const label = document.getElementById("file-label");
+                    label.innerText =
+                        file.name.length > 10
+                            ? file.name.substring(0, 10) + "..."
+                            : file.name;
+                    label.classList.add("text-green-400");
+                    uploadedType = file.type;
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        uploadedBase64 = reader.result.split(",")[1];
+                    };
+                    reader.readAsDataURL(file);
+                }
+            }
+
+            async function sendMessage() {
+                const input = document.getElementById("chatMessage");
+                const history = document.getElementById("chat-history");
+                if (!input.value && !uploadedBase64) return;
+
+                history.innerHTML += `
+                <div class="flex flex-col items-end mb-4">
+                    <span class="text-xs text-gray-400 mb-1 font-bold mr-1">You</span>
+                    <div class="bg-blue-600 p-4 rounded-2xl rounded-tr-sm max-w-[85%] sm:max-w-[70%] text-sm text-gray-100 shadow-md">
+                        ${input.value} ${uploadedBase64 ? '<div class="mt-1 text-[10px] opacity-70">📎 File Attached</div>' : ""}
+                    </div>
+                </div>`;
+                history.scrollTop = history.scrollHeight;
+                saveChatHistory(); // Save history after user message
+
+                const msg = input.value;
+                input.value = "";
+                document
+                    .getElementById("typing-indicator")
+                    .classList.remove("hidden"); // Show typing indicator
+
+                try {
+                    const res = await fetch(`${API_URL}/chat`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            message: msg,
+                            file_base64: uploadedBase64,
+                            file_type: uploadedType,
+                        }),
+                    });
+                    const data = await res.json();
+                    history.innerHTML += `
+                    <div class="flex flex-col items-start mb-4">
+                        <span class="text-xs text-blue-400 mb-1 font-bold ml-1">AI Tutor</span>
+                        <div class="bg-gray-800 border border-gray-700 p-4 rounded-2xl rounded-tl-sm max-w-[85%] sm:max-w-[70%] text-sm text-gray-200 shadow-md whitespace-pre-wrap">${data.reply}</div>
+                    </div>`;
+                    history.scrollTop = history.scrollHeight; // Scroll after AI message
+                    saveChatHistory(); // Save history after AI message
+                    uploadedBase64 = null;
+                    uploadedType = null;
+                    document.getElementById("fileInput").value = "";
+                    document.getElementById("file-label").innerText = "Attach";
+                    document
+                        .getElementById("file-label")
+                        .classList.remove("text-green-400");
+                } catch (err) {
+                    history.innerHTML += `<div class="text-center text-xs text-red-500">Connection Error</div>`;
+                } finally {
+                    document
+                        .getElementById("typing-indicator")
+                        .classList.add("hidden"); // Hide typing indicator
+                }
+                history.scrollTop = history.scrollHeight;
+            }
+            // Call loadChatHistory when the script loads
+            loadChatHistory();
+
+            // Standard Dashboard Funcs
+            async function fetchSubjects() {
+                const r = await fetch(`${API_URL}/subjects`);
+                const s = await r.json();
+                const d = document.getElementById("dashboard");
+                d.innerHTML = "";
+                s.forEach((sub) => {
+                    const max = Math.floor(sub.totalHours * 0.3);
+                    const perc = max > 0 ? (sub.skipped / max) * 100 : 0;
+                    const color =
+                        perc >= 85 ? "red" : perc >= 50 ? "yellow" : "green";
+                    let warn =
+                        sub.skipped > max
+                            ? "THRESHOLD EXCEEDED"
+                            : sub.skipped === max
+                              ? "LIMIT REACHED"
+                              : perc >= 85
+                                ? "CRITICAL RISK"
+                                : "";
+                    d.innerHTML += `
+                    <div class="bg-gray-900 border border-gray-800 p-5 rounded-xl shadow-lg flex flex-col justify-between h-full gap-4">
+                        <div>
+                            <div class="flex justify-between items-start">
+                                <h2 class="text-xl font-bold text-white">${sub.name}</h2>
+                                <button onclick="deleteSubject(${sub.id})" class="text-[10px] text-red-500 font-bold">DELETE</button>
+                            </div>
+                            <p class="text-sm text-gray-400 mt-2">Missed: <span class="text-white font-bold">${sub.skipped}</span> / ${max}</p>
+                            <div class="w-full bg-gray-800 rounded-full h-2 mt-3 overflow-hidden">
+                                <div class="bg-${color}-500 h-full transition-all" style="width: ${Math.min(perc, 100)}%"></div>
+                            </div>
+                            <p class="text-[10px] font-bold text-${color}-500 mt-2">${warn}</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="skipClass(${sub.id})" class="flex-1 bg-gray-800 py-2 rounded-lg text-sm font-bold border border-gray-700">+ Skip</button>
+                            <button onclick="undoSkip(${sub.id})" class="flex-1 text-gray-500 text-xs">Undo</button>
+                        </div>
+                        ${sub.last_skipped ? `<p class="text-[10px] text-gray-500 mt-1">Last skipped: ${formatTimestamp(sub.last_skipped)}</p>` : ""}
+                    </div>`;
+                });
+            }
+
+            async function addSubject() {
+                const n = document.getElementById("newName"),
+                    h = document.getElementById("newHours");
+                if (!n.value || !h.value) return;
+                await fetch(`${API_URL}/subjects`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        name: n.value,
+                        totalHours: parseInt(h.value),
+                    }),
+                });
+                n.value = "";
+                h.value = "";
+                fetchSubjects();
+            }
+
+            async function skipClass(id) {
+                await fetch(`${API_URL}/skip/${id}`, { method: "POST" });
+                fetchSubjects();
+            }
+            async function undoSkip(id) {
+                await fetch(`${API_URL}/undo/${id}`, { method: "POST" });
+                fetchSubjects();
+            }
+            async function deleteSubject(id) {
+                if (confirm("Delete?")) {
+                    await fetch(`${API_URL}/subjects/${id}`, {
+                        method: "DELETE",
+                    });
+                    fetchSubjects();
+                }
+            }
+
+            fetchSubjects();
+        </script>
+    </body>
+</html>
