@@ -311,7 +311,6 @@
                 const r = await fetch(`${API_URL}/subjects`);
                 const s = await r.json();
                 const d = document.getElementById("dashboard");
-                d.innerHTML = "";
 
                 if (s.length === 0) {
                     d.innerHTML = `
@@ -323,6 +322,8 @@
                     return;
                 }
 
+                // Optimization: Build HTML string and update innerHTML once to reduce reflows
+                let html = "";
                 s.forEach((sub) => {
                     const max = Math.floor(sub.totalHours * 0.3);
                     const perc = max > 0 ? (sub.skipped / max) * 100 : 0;
@@ -336,7 +337,7 @@
                               : perc >= 70
                                 ? "CRITICAL RISK"
                                 : "";
-                    d.innerHTML += `
+                    html += `
                     <div class="bg-gray-900 border border-gray-800 p-5 rounded-xl shadow-lg flex flex-col justify-between h-full gap-4">
                         <div>
                             <div class="flex justify-between items-start">
@@ -356,6 +357,7 @@
                         ${sub.last_skipped ? `<p class="text-[10px] text-gray-500 mt-1">Last skipped: ${formatTimestamp(sub.last_skipped)}</p>` : ""}
                     </div>`;
                 });
+                d.innerHTML = html;
             }
 
             async function addSubject() {

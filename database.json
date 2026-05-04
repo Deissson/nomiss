@@ -3,7 +3,7 @@
         "id": 1,
         "name": "Math",
         "totalHours": 100,
-        "skipped": 0,
-        "last_skipped": null
+        "skipped": 1,
+        "last_skipped": 1777931281
     }
 ]
