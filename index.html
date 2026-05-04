@@ -50,7 +50,7 @@
                     class="bg-gray-900 border border-gray-800 p-5 rounded-xl flex flex-col sm:flex-row gap-4 sm:items-end"
                 >
                     <div class="w-full sm:flex-1">
-                        <label class="block text-xs text-gray-400 mb-1"
+                        <label for="newName" class="block text-xs text-gray-400 mb-1"
                             >Subject Name</label
                         >
                         <input
@@ -58,10 +58,11 @@
                             id="newName"
                             placeholder="e.g. Math"
                             class="w-full bg-gray-800 text-white rounded p-2 border border-gray-700 outline-none capitalize"
+                            onkeypress="if (event.key === 'Enter') addSubject();"
                         />
                     </div>
                     <div class="w-full sm:w-32">
-                        <label class="block text-xs text-gray-400 mb-1"
+                        <label for="newHours" class="block text-xs text-gray-400 mb-1"
                             >Total Hours</label
                         >
                         <input
@@ -69,6 +70,7 @@
                             id="newHours"
                             placeholder="90"
                             class="w-full bg-gray-800 text-white rounded p-2 border border-gray-700 outline-none"
+                            onkeypress="if (event.key === 'Enter') addSubject();"
                         />
                     </div>
                     <button
@@ -124,8 +126,9 @@
                     <button
                         onclick="document.getElementById('fileInput').click()"
                         class="p-3 bg-gray-800 hover:bg-gray-700 rounded-lg text-gray-400 transition flex items-center justify-center"
+                        aria-label="Attach file"
                     >
-                        📎
+                        <span aria-hidden="true">📎</span>
                         <span
                             id="file-label"
                             class="text-xs ml-2 hidden sm:inline font-bold"
@@ -142,12 +145,14 @@
                     <button
                         onclick="clearChat()"
                         class="bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded-lg transition"
+                        aria-label="Clear chat history"
                     >
                         Clear Chat
                     </button>
                     <button
                         onclick="sendMessage()"
                         class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-lg transition"
+                        aria-label="Send message"
                     >
                         Send
                     </button>
@@ -307,6 +312,17 @@
                 const s = await r.json();
                 const d = document.getElementById("dashboard");
                 d.innerHTML = "";
+
+                if (s.length === 0) {
+                    d.innerHTML = `
+                    <div class="col-span-full py-16 text-center bg-gray-900 border-2 border-dashed border-gray-800 rounded-xl">
+                        <div class="text-4xl mb-4">📚</div>
+                        <h3 class="text-xl font-bold text-gray-300">No subjects yet</h3>
+                        <p class="text-gray-500 mt-2">Add your subjects above to start optimizing your attendance.</p>
+                    </div>`;
+                    return;
+                }
+
                 s.forEach((sub) => {
                     const max = Math.floor(sub.totalHours * 0.3);
                     const perc = max > 0 ? (sub.skipped / max) * 100 : 0;
@@ -325,17 +341,17 @@
                         <div>
                             <div class="flex justify-between items-start">
                                 <h2 class="text-xl font-bold text-white">${sub.name}</h2>
-                                <button onclick="deleteSubject(${sub.id})" class="text-[10px] text-grey-500 font-bold hover:text-red-500">X</button>
+                                <button onclick="deleteSubject(${sub.id})" class="text-[10px] text-gray-500 font-bold hover:text-red-500" aria-label="Delete ${sub.name}">X</button>
                             </div>
                             <p class="text-sm text-gray-400 mt-2">Missed: <span class="text-white font-bold">${sub.skipped}</span> / ${max}</p>
-                            <div class="w-full bg-gray-800 rounded-full h-2 mt-3 overflow-hidden">
+                            <div class="w-full bg-gray-800 rounded-full h-2 mt-3 overflow-hidden" role="progressbar" aria-valuenow="${Math.min(perc, 100)}" aria-valuemin="0" aria-valuemax="100">
                                 <div class="bg-${color}-500 h-full transition-all" style="width: ${Math.min(perc, 100)}%"></div>
                             </div>
                             <p class="text-[10px] font-bold text-${color}-500 mt-2">${warn}</p>
                         </div>
                         <div class="flex gap-2">
-                            <button onclick="skipClass(${sub.id})" class="flex-1 bg-gray-800 py-2 rounded-lg text-sm font-bold border border-gray-700">+ Skip</button>
-                            <button onclick="undoSkip(${sub.id})" class="flex-1 text-gray-500 text-xs">Undo</button>
+                            <button onclick="skipClass(${sub.id})" class="flex-1 bg-gray-800 py-2 rounded-lg text-sm font-bold border border-gray-700" aria-label="Skip a class in ${sub.name}">+ Skip</button>
+                            <button onclick="undoSkip(${sub.id})" class="flex-1 text-gray-500 text-xs" aria-label="Undo last skip in ${sub.name}">Undo</button>
                         </div>
                         ${sub.last_skipped ? `<p class="text-[10px] text-gray-500 mt-1">Last skipped: ${formatTimestamp(sub.last_skipped)}</p>` : ""}
                     </div>`;
