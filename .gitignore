@@ -1,3 +1,6 @@
 __pycache__/
 .DS_Store
 database.json
+node_modules/
+server.log
+bolt_verification.png

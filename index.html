@@ -168,10 +168,16 @@
 
             const CHAT_HISTORY_KEY = "burnoutSkipperChatHistory";
 
+            // Optimize: Use a persistent Intl.DateTimeFormat instance for faster formatting
+            const dateFormatter = new Intl.DateTimeFormat(undefined, {
+                dateStyle: "short",
+                timeStyle: "short",
+            });
+
             function formatTimestamp(unixTimestamp) {
                 if (!unixTimestamp) return "Never";
                 const date = new Date(unixTimestamp * 1000); // Convert to milliseconds
-                return date.toLocaleString(); // Format to local date and time string
+                return dateFormatter.format(date);
             }
 
             function loadChatHistory() {
@@ -252,13 +258,17 @@
                 const history = document.getElementById("chat-history");
                 if (!input.value && !uploadedBase64) return;
 
-                history.innerHTML += `
+                // Optimize: Use insertAdjacentHTML instead of innerHTML += to avoid re-parsing the entire history
+                history.insertAdjacentHTML(
+                    "beforeend",
+                    `
                 <div class="flex flex-col items-end mb-4">
                     <span class="text-xs text-gray-400 mb-1 font-bold mr-1">You</span>
                     <div class="bg-blue-600 p-4 rounded-2xl rounded-tr-sm max-w-[85%] sm:max-w-[70%] text-sm text-gray-100 shadow-md">
                         ${input.value} ${uploadedBase64 ? '<div class="mt-1 text-[10px] opacity-70">📎 File Attached</div>' : ""}
                     </div>
-                </div>`;
+                </div>`,
+                );
                 history.scrollTop = history.scrollHeight;
                 saveChatHistory(); // Save history after user message
 
@@ -280,11 +290,15 @@
                     });
                     const data = await res.json();
                     //await new Promise((resolve) => setTimeout(resolve, 60000)); // Wait for 1 minute
-                    history.innerHTML += `
+                    // Optimize: Use insertAdjacentHTML instead of innerHTML +=
+                    history.insertAdjacentHTML(
+                        "beforeend",
+                        `
                     <div class="flex flex-col items-start mb-4">
                         <span class="text-xs text-blue-400 mb-1 font-bold ml-1">AI Tutor</span>
                         <div class="bg-gray-800 border border-gray-700 p-4 rounded-2xl rounded-tl-sm max-w-[85%] sm:max-w-[70%] text-sm text-gray-200 shadow-md whitespace-pre-wrap">${data.reply}</div>
-                    </div>`;
+                    </div>`,
+                    );
                     history.scrollTop = history.scrollHeight; // Scroll after AI message
                     saveChatHistory(); // Save history after AI message
                     uploadedBase64 = null;
@@ -295,7 +309,11 @@
                         .getElementById("file-label")
                         .classList.remove("text-green-400");
                 } catch (err) {
-                    history.innerHTML += `<div class="text-center text-xs text-red-500">Connection Error</div>`;
+                    // Optimize: Use insertAdjacentHTML
+                    history.insertAdjacentHTML(
+                        "beforeend",
+                        `<div class="text-center text-xs text-red-500">Connection Error</div>`,
+                    );
                 } finally {
                     document
                         .getElementById("typing-indicator")
@@ -311,7 +329,6 @@
                 const r = await fetch(`${API_URL}/subjects`);
                 const s = await r.json();
                 const d = document.getElementById("dashboard");
-                d.innerHTML = "";
 
                 if (s.length === 0) {
                     d.innerHTML = `
@@ -323,6 +340,8 @@
                     return;
                 }
 
+                // Optimize: Build the HTML string once and update d.innerHTML to reduce reflows
+                let html = "";
                 s.forEach((sub) => {
                     const max = Math.floor(sub.totalHours * 0.3);
                     const perc = max > 0 ? (sub.skipped / max) * 100 : 0;
@@ -336,7 +355,7 @@
                               : perc >= 70
                                 ? "CRITICAL RISK"
                                 : "";
-                    d.innerHTML += `
+                    html += `
                     <div class="bg-gray-900 border border-gray-800 p-5 rounded-xl shadow-lg flex flex-col justify-between h-full gap-4">
                         <div>
                             <div class="flex justify-between items-start">
@@ -356,6 +375,7 @@
                         ${sub.last_skipped ? `<p class="text-[10px] text-gray-500 mt-1">Last skipped: ${formatTimestamp(sub.last_skipped)}</p>` : ""}
                     </div>`;
                 });
+                d.innerHTML = html;
             }
 
             async function addSubject() {
