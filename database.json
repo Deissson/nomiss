@@ -5,5 +5,40 @@
         "totalHours": 100,
         "skipped": 0,
         "last_skipped": null
+    },
+    {
+        "id": 2,
+        "name": "Physics",
+        "totalHours": 120,
+        "skipped": 0,
+        "last_skipped": null
+    },
+    {
+        "id": 3,
+        "name": "Physics",
+        "totalHours": 120,
+        "skipped": 0,
+        "last_skipped": null
+    },
+    {
+        "id": 4,
+        "name": "Physics",
+        "totalHours": 120,
+        "skipped": 0,
+        "last_skipped": null
+    },
+    {
+        "id": 5,
+        "name": "Physics",
+        "totalHours": 120,
+        "skipped": 0,
+        "last_skipped": null
+    },
+    {
+        "id": 6,
+        "name": "Chemistry",
+        "totalHours": 80,
+        "skipped": 1,
+        "last_skipped": 1778019969
     }
 ]
