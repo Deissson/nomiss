@@ -258,13 +258,17 @@
                 const originalBtnText = sendBtn.innerText;
                 sendBtn.innerText = "Sending...";
 
-                history.innerHTML += `
+                // Optimize: Use insertAdjacentHTML instead of innerHTML += to avoid re-parsing the entire history
+                history.insertAdjacentHTML(
+                    "beforeend",
+                    `
                 <div class="flex flex-col items-end mb-4">
                     <span class="text-xs text-gray-400 mb-1 font-bold mr-1">You</span>
                     <div class="bg-blue-600 p-4 rounded-2xl rounded-tr-sm max-w-[85%] sm:max-w-[70%] text-sm text-gray-100 shadow-md">
                         ${input.value} ${uploadedBase64 ? '<div class="mt-1 text-[10px] opacity-70">📎 File Attached</div>' : ""}
                     </div>
-                </div>`;
+                </div>`,
+                );
                 history.scrollTop = history.scrollHeight;
                 saveChatHistory(); // Save history after user message
 
@@ -286,11 +290,14 @@
                     });
                     const data = await res.json();
                     //await new Promise((resolve) => setTimeout(resolve, 60000)); // Wait for 1 minute
-                    history.innerHTML += `
+                    history.insertAdjacentHTML(
+                        "beforeend",
+                        `
                     <div class="flex flex-col items-start mb-4">
                         <span class="text-xs text-blue-400 mb-1 font-bold ml-1">AI Tutor</span>
                         <div class="bg-gray-800 border border-gray-700 p-4 rounded-2xl rounded-tl-sm max-w-[85%] sm:max-w-[70%] text-sm text-gray-200 shadow-md whitespace-pre-wrap">${data.reply}</div>
-                    </div>`;
+                    </div>`,
+                    );
                     history.scrollTop = history.scrollHeight; // Scroll after AI message
                     saveChatHistory(); // Save history after AI message
                     uploadedBase64 = null;
