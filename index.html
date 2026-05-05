@@ -169,10 +169,16 @@
 
             const CHAT_HISTORY_KEY = "burnoutSkipperChatHistory";
 
+            // Optimize: Use a persistent Intl.DateTimeFormat instance for faster formatting
+            const dateFormatter = new Intl.DateTimeFormat(undefined, {
+                dateStyle: "short",
+                timeStyle: "short",
+            });
+
             function formatTimestamp(unixTimestamp) {
                 if (!unixTimestamp) return "Never";
                 const date = new Date(unixTimestamp * 1000); // Convert to milliseconds
-                return date.toLocaleString(); // Format to local date and time string
+                return dateFormatter.format(date);
             }
 
             function loadChatHistory() {
@@ -308,7 +314,11 @@
                         .getElementById("file-label")
                         .classList.remove("text-green-400");
                 } catch (err) {
-                    history.innerHTML += `<div class="text-center text-xs text-red-500">Connection Error</div>`;
+                    // Optimize: Use insertAdjacentHTML
+                    history.insertAdjacentHTML(
+                        "beforeend",
+                        `<div class="text-center text-xs text-red-500">Connection Error</div>`,
+                    );
                 } finally {
                     document
                         .getElementById("typing-indicator")
@@ -326,7 +336,6 @@
                 const r = await fetch(`${API_URL}/subjects`);
                 const s = await r.json();
                 const d = document.getElementById("dashboard");
-                d.innerHTML = "";
 
                 if (s.length === 0) {
                     d.innerHTML = `
@@ -338,6 +347,8 @@
                     return;
                 }
 
+                // Optimize: Build the HTML string once and update d.innerHTML to reduce reflows
+                let html = "";
                 s.forEach((sub) => {
                     const max = Math.floor(sub.totalHours * 0.3);
                     const perc = max > 0 ? (sub.skipped / max) * 100 : 0;
@@ -351,7 +362,7 @@
                               : perc >= 70
                                 ? "CRITICAL RISK"
                                 : "";
-                    d.innerHTML += `
+                    html += `
                     <div class="bg-gray-900 border border-gray-800 p-5 rounded-xl shadow-lg flex flex-col justify-between h-full gap-4">
                         <div>
                             <div class="flex justify-between items-start">
@@ -371,6 +382,7 @@
                         ${sub.last_skipped ? `<p class="text-[10px] text-gray-500 mt-1">Last skipped: ${formatTimestamp(sub.last_skipped)}</p>` : ""}
                     </div>`;
                 });
+                d.innerHTML = html;
             }
 
             async function addSubject() {
