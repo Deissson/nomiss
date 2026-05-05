@@ -150,8 +150,9 @@
                         Clear Chat
                     </button>
                     <button
+                        id="sendBtn"
                         onclick="sendMessage()"
-                        class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-lg transition"
+                        class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
                         aria-label="Send message"
                     >
                         Send
@@ -256,7 +257,12 @@
             async function sendMessage() {
                 const input = document.getElementById("chatMessage");
                 const history = document.getElementById("chat-history");
+                const sendBtn = document.getElementById("sendBtn");
                 if (!input.value && !uploadedBase64) return;
+
+                sendBtn.disabled = true;
+                const originalBtnText = sendBtn.innerText;
+                sendBtn.innerText = "Sending...";
 
                 // Optimize: Use insertAdjacentHTML instead of innerHTML += to avoid re-parsing the entire history
                 history.insertAdjacentHTML(
@@ -290,7 +296,6 @@
                     });
                     const data = await res.json();
                     //await new Promise((resolve) => setTimeout(resolve, 60000)); // Wait for 1 minute
-                    // Optimize: Use insertAdjacentHTML instead of innerHTML +=
                     history.insertAdjacentHTML(
                         "beforeend",
                         `
@@ -318,6 +323,8 @@
                     document
                         .getElementById("typing-indicator")
                         .classList.add("hidden"); // Hide typing indicator
+                    sendBtn.disabled = false;
+                    sendBtn.innerText = originalBtnText;
                 }
                 history.scrollTop = history.scrollHeight;
             }
