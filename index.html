@@ -332,9 +332,15 @@
             loadChatHistory();
 
             // Standard Dashboard Funcs
-            async function fetchSubjects() {
-                const r = await fetch(`${API_URL}/subjects`);
-                const s = await r.json();
+            async function fetchSubjects(data = null) {
+                let s = data;
+                if (!s) {
+                    const r = await fetch(`${API_URL}/subjects`);
+                    s = await r.json();
+                }
+
+                if (!Array.isArray(s)) return;
+
                 const d = document.getElementById("dashboard");
 
                 if (s.length === 0) {
@@ -389,7 +395,7 @@
                 const n = document.getElementById("newName"),
                     h = document.getElementById("newHours");
                 if (!n.value || !h.value) return;
-                await fetch(`${API_URL}/subjects`, {
+                const res = await fetch(`${API_URL}/subjects`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -397,25 +403,33 @@
                         totalHours: parseInt(h.value),
                     }),
                 });
+                const data = await res.json();
                 n.value = "";
                 h.value = "";
-                fetchSubjects();
+                fetchSubjects(data);
             }
 
             async function skipClass(id) {
-                await fetch(`${API_URL}/skip/${id}`, { method: "POST" });
-                fetchSubjects();
+                const res = await fetch(`${API_URL}/skip/${id}`, {
+                    method: "POST",
+                });
+                const data = await res.json();
+                fetchSubjects(data);
             }
             async function undoSkip(id) {
-                await fetch(`${API_URL}/undo/${id}`, { method: "POST" });
-                fetchSubjects();
+                const res = await fetch(`${API_URL}/undo/${id}`, {
+                    method: "POST",
+                });
+                const data = await res.json();
+                fetchSubjects(data);
             }
             async function deleteSubject(id) {
                 if (confirm("Delete?")) {
-                    await fetch(`${API_URL}/subjects/${id}`, {
+                    const res = await fetch(`${API_URL}/subjects/${id}`, {
                         method: "DELETE",
                     });
-                    fetchSubjects();
+                    const data = await res.json();
+                    fetchSubjects(data);
                 }
             }
 
