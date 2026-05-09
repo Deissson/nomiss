@@ -332,12 +332,14 @@
             loadChatHistory();
 
             // Standard Dashboard Funcs
-            async function fetchSubjects() {
-                const r = await fetch(`${API_URL}/subjects`);
-                const s = await r.json();
+            async function fetchSubjects(s = null) {
+                if (!s || !Array.isArray(s)) {
+                    const r = await fetch(`${API_URL}/subjects`);
+                    s = await r.json();
+                }
                 const d = document.getElementById("dashboard");
 
-                if (s.length === 0) {
+                if (!Array.isArray(s) || s.length === 0) {
                     d.innerHTML = `
                     <div class="col-span-full py-16 text-center bg-gray-900 border-2 border-dashed border-gray-800 rounded-xl">
                         <div class="text-4xl mb-4">📚</div>
@@ -389,7 +391,7 @@
                 const n = document.getElementById("newName"),
                     h = document.getElementById("newHours");
                 if (!n.value || !h.value) return;
-                await fetch(`${API_URL}/subjects`, {
+                const r = await fetch(`${API_URL}/subjects`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -397,25 +399,37 @@
                         totalHours: parseInt(h.value),
                     }),
                 });
+                const data = await r.json();
                 n.value = "";
                 h.value = "";
-                fetchSubjects();
+                // Optimize: Pass data directly to avoid redundant GET request
+                fetchSubjects(data);
             }
 
             async function skipClass(id) {
-                await fetch(`${API_URL}/skip/${id}`, { method: "POST" });
-                fetchSubjects();
+                const r = await fetch(`${API_URL}/skip/${id}`, {
+                    method: "POST",
+                });
+                const data = await r.json();
+                // Optimize: Pass data directly to avoid redundant GET request
+                fetchSubjects(data);
             }
             async function undoSkip(id) {
-                await fetch(`${API_URL}/undo/${id}`, { method: "POST" });
-                fetchSubjects();
+                const r = await fetch(`${API_URL}/undo/${id}`, {
+                    method: "POST",
+                });
+                const data = await r.json();
+                // Optimize: Pass data directly to avoid redundant GET request
+                fetchSubjects(data);
             }
             async function deleteSubject(id) {
                 if (confirm("Delete?")) {
-                    await fetch(`${API_URL}/subjects/${id}`, {
+                    const r = await fetch(`${API_URL}/subjects/${id}`, {
                         method: "DELETE",
                     });
-                    fetchSubjects();
+                    const data = await r.json();
+                    // Optimize: Pass data directly to avoid redundant GET request
+                    fetchSubjects(data);
                 }
             }
 
