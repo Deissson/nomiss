@@ -64,7 +64,8 @@ class ChatMessage(BaseModel):
 @app.get("/subjects")
 def get_subjects(request: Request, response: Response):
     db = load_db(request)
-    save_db(db, response)  # Ensure cookie is set/updated even on GET requests
+    if IS_PRODUCTION:
+        save_db(db, response)  # Ensure cookie is set/updated even on GET requests
     return db
 
 
@@ -83,7 +84,7 @@ def add_subject(subject: NewSubject, request: Request, response: Response):
         }
     )
     save_db(db, response)
-    return {"message": "Subject added"}
+    return db
 
 
 @app.post("/skip/{subject_id}")
@@ -94,7 +95,7 @@ def skip_class(subject_id: int, request: Request, response: Response):
             sub["skipped"] += 1
             sub["last_skipped"] = int(time.time())
             save_db(db, response)
-            return {"message": "Skip recorded"}
+            return db
     return {"error": "Not found"}
 
 
@@ -107,7 +108,7 @@ def undo_skip(subject_id: int, request: Request, response: Response):
             # Optional: Clear timestamp if no skips left
             sub["last_skipped"] = None
             save_db(db, response)
-            return {"message": "Skip removed"}
+            return db
     return {"error": "Not found"}
 
 
@@ -116,7 +117,7 @@ def delete_subject(subject_id: int, request: Request, response: Response):
     db = load_db(request)
     db = [sub for sub in db if sub["id"] != subject_id]
     save_db(db, response)
-    return {"message": "Subject deleted"}
+    return db
 
 
 # --- TUTOR CHATBOT WITH PDF SUPPORT ---

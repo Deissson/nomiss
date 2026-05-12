@@ -332,12 +332,16 @@
             loadChatHistory();
 
             // Standard Dashboard Funcs
-            async function fetchSubjects() {
-                const r = await fetch(`${API_URL}/subjects`);
-                const s = await r.json();
+            function renderSubjects(subjects) {
+                // Safety check: Re-fetch if the input is not an array
+                if (!Array.isArray(subjects)) {
+                    fetchSubjects();
+                    return;
+                }
+
                 const d = document.getElementById("dashboard");
 
-                if (s.length === 0) {
+                if (subjects.length === 0) {
                     d.innerHTML = `
                     <div class="col-span-full py-16 text-center bg-gray-900 border-2 border-dashed border-gray-800 rounded-xl">
                         <div class="text-4xl mb-4">📚</div>
@@ -349,7 +353,7 @@
 
                 // Optimize: Build the HTML string once and update d.innerHTML to reduce reflows
                 let html = "";
-                s.forEach((sub) => {
+                subjects.forEach((sub) => {
                     const max = Math.floor(sub.totalHours * 0.3);
                     const perc = max > 0 ? (sub.skipped / max) * 100 : 0;
                     const color =
@@ -385,11 +389,17 @@
                 d.innerHTML = html;
             }
 
+            async function fetchSubjects() {
+                const r = await fetch(`${API_URL}/subjects`);
+                const s = await r.json();
+                renderSubjects(s);
+            }
+
             async function addSubject() {
                 const n = document.getElementById("newName"),
                     h = document.getElementById("newHours");
                 if (!n.value || !h.value) return;
-                await fetch(`${API_URL}/subjects`, {
+                const r = await fetch(`${API_URL}/subjects`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -397,25 +407,33 @@
                         totalHours: parseInt(h.value),
                     }),
                 });
+                const s = await r.json();
                 n.value = "";
                 h.value = "";
-                fetchSubjects();
+                renderSubjects(s);
             }
 
             async function skipClass(id) {
-                await fetch(`${API_URL}/skip/${id}`, { method: "POST" });
-                fetchSubjects();
+                const r = await fetch(`${API_URL}/skip/${id}`, {
+                    method: "POST",
+                });
+                const s = await r.json();
+                renderSubjects(s);
             }
             async function undoSkip(id) {
-                await fetch(`${API_URL}/undo/${id}`, { method: "POST" });
-                fetchSubjects();
+                const r = await fetch(`${API_URL}/undo/${id}`, {
+                    method: "POST",
+                });
+                const s = await r.json();
+                renderSubjects(s);
             }
             async function deleteSubject(id) {
                 if (confirm("Delete?")) {
-                    await fetch(`${API_URL}/subjects/${id}`, {
+                    const r = await fetch(`${API_URL}/subjects/${id}`, {
                         method: "DELETE",
                     });
-                    fetchSubjects();
+                    const s = await r.json();
+                    renderSubjects(s);
                 }
             }
 
