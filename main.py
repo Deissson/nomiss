@@ -4,12 +4,9 @@ import time
 from typing import List
 
 import anthropic
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-
-IS_PRODUCTION = os.environ.get("PRODUCTION") == "true"
-DB_COOKIE_NAME = "subjects_db"
 
 app = FastAPI()
 
@@ -23,30 +20,16 @@ app.add_middleware(
 DB_FILE = "database.json"
 
 
-def load_db(request: Request | None = None) -> List[dict]:
-    if IS_PRODUCTION and request:
-        db_cookie = request.cookies.get(DB_COOKIE_NAME)
-        if db_cookie:
-            try:
-                return json.loads(db_cookie)
-            except json.JSONDecodeError:
-                return []
+def load_db() -> List[dict]:
+    if not os.path.exists(DB_FILE):
         return []
-    else:
-        if not os.path.exists(DB_FILE):
-            return []
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
+    with open(DB_FILE, "r") as f:
+        return json.load(f)
 
 
-def save_db(data: List[dict], response: Response | None = None):
-    if IS_PRODUCTION and response:
-        response.set_cookie(
-            key=DB_COOKIE_NAME, value=json.dumps(data), httponly=True, samesite="lax"
-        )
-    else:
-        with open(DB_FILE, "w") as f:
-            json.dump(data, f, indent=4)
+def save_db(data: List[dict]):
+    with open(DB_FILE, "w") as f:
+        json.dump(data, f, indent=4)
 
 
 class NewSubject(BaseModel):
@@ -62,18 +45,14 @@ class ChatMessage(BaseModel):
 
 # --- API Endpoints ---
 @app.get("/subjects")
-def get_subjects(request: Request, response: Response):
-    db = load_db(request)
-    if IS_PRODUCTION:
-        save_db(db, response)  # Ensure cookie is set/updated even on GET requests
-    return db
+def get_subjects():
+    return load_db()
 
 
 @app.post("/subjects")
-def add_subject(subject: NewSubject, request: Request, response: Response):
-    db = load_db(request)
+def add_subject(subject: NewSubject):
+    db = load_db()
     new_id = max([sub["id"] for sub in db], default=0) + 1
-    # Initialize last_skipped as None
     db.append(
         {
             "id": new_id,
@@ -83,47 +62,46 @@ def add_subject(subject: NewSubject, request: Request, response: Response):
             "last_skipped": None,
         }
     )
-    save_db(db, response)
+    save_db(db)
     return db
 
 
 @app.post("/skip/{subject_id}")
-def skip_class(subject_id: int, request: Request, response: Response):
-    db = load_db(request)
+def skip_class(subject_id: int):
+    db = load_db()
     for sub in db:
         if sub["id"] == subject_id:
             sub["skipped"] += 1
             sub["last_skipped"] = int(time.time())
-            save_db(db, response)
+            save_db(db)
             return db
     return db
 
 
 @app.post("/undo/{subject_id}")
-def undo_skip(subject_id: int, request: Request, response: Response):
-    db = load_db(request)
+def undo_skip(subject_id: int):
+    db = load_db()
     for sub in db:
         if sub["id"] == subject_id and sub["skipped"] > 0:
             sub["skipped"] -= 1
-            # Optional: Clear timestamp if no skips left
             sub["last_skipped"] = None
-            save_db(db, response)
+            save_db(db)
             return db
     return db
 
 
 @app.delete("/subjects/{subject_id}")
-def delete_subject(subject_id: int, request: Request, response: Response):
-    db = load_db(request)
+def delete_subject(subject_id: int):
+    db = load_db()
     db = [sub for sub in db if sub["id"] != subject_id]
-    save_db(db, response)
+    save_db(db)
     return db
 
 
 # --- TUTOR CHATBOT WITH PDF SUPPORT ---
 @app.post("/chat")
-def chat_with_tutor(chat: ChatMessage, request: Request):
-    db = load_db(request)
+def chat_with_tutor(chat: ChatMessage):
+    db = load_db()
     missed_context = ", ".join(
         [f"{s['name']} ({s['skipped']} missed)" for s in db if s["skipped"] > 0]
     )
