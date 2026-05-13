@@ -44,6 +44,11 @@ class ChatMessage(BaseModel):
 
 
 # --- API Endpoints ---
+@app.get("/")
+def read_root():
+    return {"status": "Backend is running"}
+
+
 @app.get("/subjects")
 def get_subjects():
     return load_db()
