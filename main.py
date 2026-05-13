@@ -1,7 +1,8 @@
 import json
 import os
+import threading
 import time
-from typing import List
+from typing import List, Optional
 
 import anthropic
 from fastapi import FastAPI
@@ -20,17 +21,39 @@ app.add_middleware(
 
 DB_FILE = "database.json"
 
+# In-memory database cache to reduce disk I/O
+_db_cache: Optional[List[dict]] = None
+# Thread lock to ensure thread-safe file operations and cache consistency
+_db_lock = threading.Lock()
+# Global client for connection pooling
+_anthropic_client: Optional[anthropic.Anthropic] = None
+
 
 def load_db() -> List[dict]:
-    if not os.path.exists(DB_FILE):
-        return []
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
+    global _db_cache
+    if _db_cache is not None:
+        return _db_cache
+
+    with _db_lock:
+        # Double check after acquiring lock
+        if _db_cache is not None:
+            return _db_cache
+
+        if not os.path.exists(DB_FILE):
+            _db_cache = []
+            return _db_cache
+
+        with open(DB_FILE, "r") as f:
+            _db_cache = json.load(f)
+            return _db_cache
 
 
 def save_db(data: List[dict]):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+    global _db_cache
+    with _db_lock:
+        with open(DB_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+        _db_cache = data
 
 
 class NewSubject(BaseModel):
@@ -107,6 +130,7 @@ def delete_subject(subject_id: int):
 # --- TUTOR CHATBOT WITH PDF SUPPORT ---
 @app.post("/chat")
 def chat_with_tutor(chat: ChatMessage):
+    global _anthropic_client
     db = load_db()
     missed_context = ", ".join(
         [f"{s['name']} ({s['skipped']} missed)" for s in db if s["skipped"] > 0]
@@ -124,7 +148,11 @@ def chat_with_tutor(chat: ChatMessage):
             "reply": f"[Demo Mode] Missed: {missed_context}. Question: {chat.message}. (Attach API Key for real AI)"
         }
 
-    client = anthropic.Anthropic(api_key=api_key)
+    if _anthropic_client is None:
+        # Cache the client for connection pooling benefits
+        _anthropic_client = anthropic.Anthropic(api_key=api_key)
+
+    client = _anthropic_client
     content = []
 
     # Handle Attachments
