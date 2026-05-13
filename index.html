@@ -383,7 +383,10 @@
                         </div>
                         <div class="flex gap-2">
                             <button onclick="skipClass(${sub.id})" class="flex-1 bg-gray-800 py-2 rounded-lg text-sm font-bold border border-gray-700" aria-label="Skip a class in ${sub.name}">+ Skip</button>
-                            <button onclick="undoSkip(${sub.id})" class="flex-1 text-gray-500 text-xs" aria-label="Undo last skip in ${sub.name}">Undo</button>
+                            <button onclick="undoSkip(${sub.id})"
+                                class="flex-1 text-gray-500 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+                                ${sub.skipped === 0 ? "disabled" : ""}
+                                aria-label="Undo last skip in ${sub.name}">Undo</button>
                         </div>
                         ${sub.last_skipped ? `<p class="text-[10px] text-gray-500 mt-1">Last skipped: ${formatTimestamp(sub.last_skipped)}</p>` : ""}
                     </div>`;
