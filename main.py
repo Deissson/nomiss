@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 from typing import List
 
@@ -20,17 +21,39 @@ app.add_middleware(
 
 DB_FILE = "database.json"
 
+_db_cache: List[dict] | None = None
+_db_last_mtime: float = 0
+_db_lock = threading.Lock()
+
 
 def load_db() -> List[dict]:
+    global _db_cache, _db_last_mtime
     if not os.path.exists(DB_FILE):
         return []
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
+
+    current_mtime = os.path.getmtime(DB_FILE)
+    if _db_cache is not None and current_mtime <= _db_last_mtime:
+        return _db_cache
+
+    with _db_lock:
+        # Double-check inside the lock
+        current_mtime = os.path.getmtime(DB_FILE)
+        if _db_cache is not None and current_mtime <= _db_last_mtime:
+            return _db_cache
+
+        with open(DB_FILE, "r") as f:
+            _db_cache = json.load(f)
+        _db_last_mtime = current_mtime
+        return _db_cache
 
 
 def save_db(data: List[dict]):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+    global _db_cache, _db_last_mtime
+    with _db_lock:
+        with open(DB_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+        _db_cache = data
+        _db_last_mtime = os.path.getmtime(DB_FILE)
 
 
 class NewSubject(BaseModel):
