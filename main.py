@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 from typing import List
 
@@ -20,17 +21,43 @@ app.add_middleware(
 
 DB_FILE = "database.json"
 
+# In-memory cache for the database to reduce disk I/O
+_db_cache: List[dict] = []
+_db_mtime: float = 0
+_db_lock = threading.Lock()
+
 
 def load_db() -> List[dict]:
+    """Loads the database from disk or cache if it hasn't changed."""
+    global _db_cache, _db_mtime
+
     if not os.path.exists(DB_FILE):
         return []
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
+
+    with _db_lock:
+        try:
+            current_mtime = os.path.getmtime(DB_FILE)
+            # If the file hasn't changed and we have a cache, return it
+            if current_mtime <= _db_mtime and _db_cache:
+                return _db_cache
+
+            # Otherwise, reload from disk
+            with open(DB_FILE, "r") as f:
+                _db_cache = json.load(f)
+                _db_mtime = current_mtime
+            return _db_cache
+        except (IOError, json.JSONDecodeError):
+            return _db_cache if _db_cache else []
 
 
 def save_db(data: List[dict]):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+    """Saves the database to disk and updates the in-memory cache."""
+    global _db_cache, _db_mtime
+    with _db_lock:
+        with open(DB_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+        _db_cache = data
+        _db_mtime = os.path.getmtime(DB_FILE)
 
 
 class NewSubject(BaseModel):
