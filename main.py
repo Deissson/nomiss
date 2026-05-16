@@ -77,6 +77,10 @@ def migrate_json_to_postgres():
 
 migrate_json_to_postgres()
 
+# Global Anthropic client for connection pooling and reduced initialization overhead
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
+
 class NewSubject(BaseModel):
     name: str
     totalHours: int
@@ -132,7 +136,8 @@ def delete_subject(subject_id: int, db: Session = Depends(get_db)):
 
 @app.post("/chat")
 def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
-    subs = db.query(SubjectModel).filter(SubjectModel.skipped > 0).all()
+    # Optimize: Fetch only necessary columns to reduce database overhead
+    subs = db.query(SubjectModel.name, SubjectModel.skipped).filter(SubjectModel.skipped > 0).all()
     missed_context = ", ".join(
         [f"{s.name} ({s.skipped} missed)" for s in subs]
     )
@@ -143,13 +148,11 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
         "Focus on helping them catch up quickly. Be highly understandable and brief to save tokens. Avoid using Markdown in every instance (including other languages), structure the response strictly in plain text"
     )
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
+    if not anthropic_client:
         return {
             "reply": f"[Demo Mode] Missed: {missed_context}. Question: {chat.message}. (Attach API Key for real AI)"
         }
 
-    client = anthropic.Anthropic(api_key=api_key)
     content = []
 
     if chat.file_base64 and chat.file_type:
@@ -169,7 +172,8 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
         "text": chat.message or "Explain this material based on my missed classes."
     })
 
-    response = client.messages.create(
+    # Reuse global client to benefit from connection pooling and avoid re-initialization latency (~30ms)
+    response = anthropic_client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=1000,
         system=system_prompt,
