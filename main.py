@@ -1,12 +1,46 @@
 import json
 import os
 import time
-from typing import List
 
 import anthropic
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sqlalchemy import create_engine, Column, Integer, String, BigInteger
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+
+# Database configuration
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# Fallback for local development if DATABASE_URL is not set
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///./database.db"
+elif DATABASE_URL.startswith("postgres://"):
+    # SQLAlchemy requires postgresql:// instead of postgres://
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+class SubjectModel(Base):
+    __tablename__ = "subjects"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    totalHours = Column(Integer)
+    skipped = Column(Integer, default=0)
+    last_skipped = Column(BigInteger, nullable=True)
+
+# Create tables
+Base.metadata.create_all(bind=engine)
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 app = FastAPI()
 
@@ -18,98 +52,89 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Migration logic: JSON to Postgres
 DB_FILE = "database.json"
+def migrate_json_to_postgres():
+    db = SessionLocal()
+    try:
+        if db.query(SubjectModel).count() == 0 and os.path.exists(DB_FILE):
+            with open(DB_FILE, "r") as f:
+                data = json.load(f)
+                for item in data:
+                    new_sub = SubjectModel(
+                        name=item["name"],
+                        totalHours=item["totalHours"],
+                        skipped=item.get("skipped", 0),
+                        last_skipped=item.get("last_skipped")
+                    )
+                    db.add(new_sub)
+                db.commit()
+                print("Migration from JSON to Postgres completed.")
+    except Exception as e:
+        print(f"Migration failed: {e}")
+    finally:
+        db.close()
 
-
-def load_db() -> List[dict]:
-    if not os.path.exists(DB_FILE):
-        return []
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
-
-
-def save_db(data: List[dict]):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=4)
-
+migrate_json_to_postgres()
 
 class NewSubject(BaseModel):
     name: str
     totalHours: int
-
 
 class ChatMessage(BaseModel):
     message: str
     file_base64: str | None = None
     file_type: str | None = None
 
-
-# --- API Endpoints ---
 @app.get("/")
 def read_root():
-    return {"status": "Backend is running"}
-
+    return {"status": "Backend is running with Postgres"}
 
 @app.get("/subjects")
-def get_subjects():
-    return load_db()
-
+def get_subjects(db: Session = Depends(get_db)):
+    return db.query(SubjectModel).all()
 
 @app.post("/subjects")
-def add_subject(subject: NewSubject):
-    db = load_db()
-    new_id = max([sub["id"] for sub in db], default=0) + 1
-    db.append(
-        {
-            "id": new_id,
-            "name": subject.name,
-            "totalHours": subject.totalHours,
-            "skipped": 0,
-            "last_skipped": None,
-        }
-    )
-    save_db(db)
-    return db
-
+def add_subject(subject: NewSubject, db: Session = Depends(get_db)):
+    new_sub = SubjectModel(name=subject.name, totalHours=subject.totalHours)
+    db.add(new_sub)
+    db.commit()
+    return db.query(SubjectModel).all()
 
 @app.post("/skip/{subject_id}")
-def skip_class(subject_id: int):
-    db = load_db()
-    for sub in db:
-        if sub["id"] == subject_id:
-            sub["skipped"] += 1
-            sub["last_skipped"] = int(time.time())
-            save_db(db)
-            return db
-    return db
-
+def skip_class(subject_id: int, db: Session = Depends(get_db)):
+    sub = db.query(SubjectModel).filter(SubjectModel.id == subject_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    sub.skipped += 1
+    sub.last_skipped = int(time.time())
+    db.commit()
+    return db.query(SubjectModel).all()
 
 @app.post("/undo/{subject_id}")
-def undo_skip(subject_id: int):
-    db = load_db()
-    for sub in db:
-        if sub["id"] == subject_id and sub["skipped"] > 0:
-            sub["skipped"] -= 1
-            sub["last_skipped"] = None
-            save_db(db)
-            return db
-    return db
-
+def undo_skip(subject_id: int, db: Session = Depends(get_db)):
+    sub = db.query(SubjectModel).filter(SubjectModel.id == subject_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    if sub.skipped > 0:
+        sub.skipped -= 1
+        sub.last_skipped = None
+        db.commit()
+    return db.query(SubjectModel).all()
 
 @app.delete("/subjects/{subject_id}")
-def delete_subject(subject_id: int):
-    db = load_db()
-    db = [sub for sub in db if sub["id"] != subject_id]
-    save_db(db)
-    return db
+def delete_subject(subject_id: int, db: Session = Depends(get_db)):
+    sub = db.query(SubjectModel).filter(SubjectModel.id == subject_id).first()
+    if sub:
+        db.delete(sub)
+        db.commit()
+    return db.query(SubjectModel).all()
 
-
-# --- TUTOR CHATBOT WITH PDF SUPPORT ---
 @app.post("/chat")
-def chat_with_tutor(chat: ChatMessage):
-    db = load_db()
+def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
+    subs = db.query(SubjectModel).filter(SubjectModel.skipped > 0).all()
     missed_context = ", ".join(
-        [f"{s['name']} ({s['skipped']} missed)" for s in db if s["skipped"] > 0]
+        [f"{s.name} ({s.skipped} missed)" for s in subs]
     )
 
     system_prompt = (
@@ -127,41 +152,22 @@ def chat_with_tutor(chat: ChatMessage):
     client = anthropic.Anthropic(api_key=api_key)
     content = []
 
-    # Handle Attachments
     if chat.file_base64 and chat.file_type:
         if "pdf" in chat.file_type:
-            # Send as PDF document
-            content.append(
-                {
-                    "type": "document",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "application/pdf",
-                        "data": chat.file_base64,
-                    },
-                }
-            )
+            content.append({
+                "type": "document",
+                "source": {"type": "base64", "media_type": "application/pdf", "data": chat.file_base64}
+            })
         else:
-            # Send as Image
-            content.append(
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": chat.file_type
-                        if chat.file_type
-                        else "image/jpeg",
-                        "data": chat.file_base64,
-                    },
-                }
-            )
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": chat.file_type or "image/jpeg", "data": chat.file_base64}
+            })
 
-    content.append(
-        {
-            "type": "text",
-            "text": chat.message or "Explain this material based on my missed classes.",
-        }
-    )
+    content.append({
+        "type": "text",
+        "text": chat.message or "Explain this material based on my missed classes."
+    })
 
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
@@ -170,4 +176,4 @@ def chat_with_tutor(chat: ChatMessage):
         messages=[{"role": "user", "content": content}],
     )
 
-    return {"reply": response.content[0].text}  # pyright: ignore[reportAttributeAccessIssue]
+    return {"reply": response.content[0].text}
