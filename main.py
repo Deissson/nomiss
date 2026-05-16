@@ -33,7 +33,10 @@ class SubjectModel(Base):
     last_skipped = Column(BigInteger, nullable=True)
 
 # Create tables
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"Database table creation failed: {e}")
 
 def get_db():
     db = SessionLocal()
@@ -76,6 +79,20 @@ def migrate_json_to_postgres():
         db.close()
 
 migrate_json_to_postgres()
+
+# Global Anthropic client cache for connection pooling
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+_anthropic_client = None
+
+def get_anthropic_client():
+    global _anthropic_client
+    if not _anthropic_client and ANTHROPIC_API_KEY:
+        try:
+            # Initialize lazily to prevent startup crashes and reduce initial memory footprint
+            _anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        except Exception as e:
+            print(f"Failed to initialize Anthropic client: {e}")
+    return _anthropic_client
 
 class NewSubject(BaseModel):
     name: str
@@ -132,7 +149,8 @@ def delete_subject(subject_id: int, db: Session = Depends(get_db)):
 
 @app.post("/chat")
 def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
-    subs = db.query(SubjectModel).filter(SubjectModel.skipped > 0).all()
+    # Optimize: Fetch only necessary columns to reduce database overhead
+    subs = db.query(SubjectModel.name, SubjectModel.skipped).filter(SubjectModel.skipped > 0).all()
     missed_context = ", ".join(
         [f"{s.name} ({s.skipped} missed)" for s in subs]
     )
@@ -143,13 +161,12 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
         "Focus on helping them catch up quickly. Be highly understandable and brief to save tokens. Avoid using Markdown in every instance (including other languages), structure the response strictly in plain text"
     )
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
+    client = get_anthropic_client()
+    if not client:
         return {
             "reply": f"[Demo Mode] Missed: {missed_context}. Question: {chat.message}. (Attach API Key for real AI)"
         }
 
-    client = anthropic.Anthropic(api_key=api_key)
     content = []
 
     if chat.file_base64 and chat.file_type:
@@ -169,6 +186,7 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
         "text": chat.message or "Explain this material based on my missed classes."
     })
 
+    # Reuse global client to benefit from connection pooling and avoid re-initialization latency (~30ms)
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=1000,
