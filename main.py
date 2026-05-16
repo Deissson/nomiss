@@ -33,7 +33,10 @@ class SubjectModel(Base):
     last_skipped = Column(BigInteger, nullable=True)
 
 # Create tables
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    print(f"Database table creation failed: {e}")
 
 def get_db():
     db = SessionLocal()
@@ -77,9 +80,19 @@ def migrate_json_to_postgres():
 
 migrate_json_to_postgres()
 
-# Global Anthropic client for connection pooling and reduced initialization overhead
+# Global Anthropic client cache for connection pooling
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
+_anthropic_client = None
+
+def get_anthropic_client():
+    global _anthropic_client
+    if not _anthropic_client and ANTHROPIC_API_KEY:
+        try:
+            # Initialize lazily to prevent startup crashes and reduce initial memory footprint
+            _anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        except Exception as e:
+            print(f"Failed to initialize Anthropic client: {e}")
+    return _anthropic_client
 
 class NewSubject(BaseModel):
     name: str
@@ -148,7 +161,8 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
         "Focus on helping them catch up quickly. Be highly understandable and brief to save tokens. Avoid using Markdown in every instance (including other languages), structure the response strictly in plain text"
     )
 
-    if not anthropic_client:
+    client = get_anthropic_client()
+    if not client:
         return {
             "reply": f"[Demo Mode] Missed: {missed_context}. Question: {chat.message}. (Attach API Key for real AI)"
         }
@@ -173,7 +187,7 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
     })
 
     # Reuse global client to benefit from connection pooling and avoid re-initialization latency (~30ms)
-    response = anthropic_client.messages.create(
+    response = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=1000,
         system=system_prompt,
