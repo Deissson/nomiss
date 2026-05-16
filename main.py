@@ -3,12 +3,12 @@ import os
 import time
 
 import anthropic
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Column, Integer, String, BigInteger
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker, Session, declarative_base
 
 # Database configuration
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -19,6 +19,8 @@ if not DATABASE_URL:
 elif DATABASE_URL.startswith("postgres://"):
     # SQLAlchemy requires postgresql:// instead of postgres://
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    if "sslmode=" not in DATABASE_URL:
+        DATABASE_URL += ("&" if "?" in DATABASE_URL else "?") + "sslmode=require"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -32,9 +34,6 @@ class SubjectModel(Base):
     skipped = Column(Integer, default=0)
     last_skipped = Column(BigInteger, nullable=True)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
-
 def get_db():
     db = SessionLocal()
     try:
@@ -42,19 +41,13 @@ def get_db():
     finally:
         db.close()
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create tables
+    Base.metadata.create_all(bind=engine)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://nomiss-lyart.vercel.app"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Migration logic: JSON to Postgres
-DB_FILE = "database.json"
-def migrate_json_to_postgres():
+    # Migration logic: JSON to Postgres
+    DB_FILE = "database.json"
     db = SessionLocal()
     try:
         if db.query(SubjectModel).count() == 0 and os.path.exists(DB_FILE):
@@ -74,8 +67,17 @@ def migrate_json_to_postgres():
         print(f"Migration failed: {e}")
     finally:
         db.close()
+    yield
 
-migrate_json_to_postgres()
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://nomiss-lyart.vercel.app"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class NewSubject(BaseModel):
     name: str
