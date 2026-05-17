@@ -1,6 +1,9 @@
 import json
+import logging
 import os
+import threading
 import time
+from contextlib import asynccontextmanager
 
 import anthropic
 from fastapi import FastAPI, Depends, HTTPException
@@ -20,6 +23,11 @@ elif DATABASE_URL.startswith("postgres://"):
     # SQLAlchemy requires postgresql:// instead of postgres://
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# Ensure SSL mode for production Postgres connections
+if DATABASE_URL.startswith("postgresql") and "sslmode" not in DATABASE_URL:
+    separator = "&" if "?" in DATABASE_URL else "?"
+    DATABASE_URL += f"{separator}sslmode=require"
+
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -32,9 +40,6 @@ class SubjectModel(Base):
     skipped = Column(Integer, default=0)
     last_skipped = Column(BigInteger, nullable=True)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
-
 def get_db():
     db = SessionLocal()
     try:
@@ -42,15 +47,22 @@ def get_db():
     finally:
         db.close()
 
-app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://nomiss-lyart.vercel.app"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Connection pooling for Anthropic client to reduce latency and reuse connections
+_anthropic_client = None
+_client_lock = threading.Lock()
+
+
+def get_anthropic_client(api_key: str):
+    """Lazy initialization of the Anthropic client with connection pooling."""
+    global _anthropic_client
+    if _anthropic_client is None:
+        with _client_lock:
+            if _anthropic_client is None:
+                _anthropic_client = anthropic.Anthropic(api_key=api_key)
+    return _anthropic_client
+
+
 
 # Migration logic: JSON to Postgres
 DB_FILE = "database.json"
@@ -75,7 +87,29 @@ def migrate_json_to_postgres():
     finally:
         db.close()
 
-migrate_json_to_postgres()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handles startup tasks like database migrations."""
+    try:
+        # Create tables if they don't exist
+        Base.metadata.create_all(bind=engine)
+        # Migrate data from JSON to the database
+        migrate_json_to_postgres()
+    except Exception as e:
+        logging.error(f"Startup database initialization failed: {e}")
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://nomiss-lyart.vercel.app"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class NewSubject(BaseModel):
     name: str
@@ -149,7 +183,8 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
             "reply": f"[Demo Mode] Missed: {missed_context}. Question: {chat.message}. (Attach API Key for real AI)"
         }
 
-    client = anthropic.Anthropic(api_key=api_key)
+    # Use the connection-pooled client instead of instantiating a new one
+    client = get_anthropic_client(api_key)
     content = []
 
     if chat.file_base64 and chat.file_type:
