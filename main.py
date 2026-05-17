@@ -1,7 +1,9 @@
 import json
+import logging
 import os
 import threading
 import time
+from contextlib import asynccontextmanager
 
 import anthropic
 from fastapi import FastAPI, Depends, HTTPException
@@ -21,6 +23,11 @@ elif DATABASE_URL.startswith("postgres://"):
     # SQLAlchemy requires postgresql:// instead of postgres://
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# Ensure SSL mode for production Postgres connections
+if DATABASE_URL.startswith("postgresql") and "sslmode" not in DATABASE_URL:
+    separator = "&" if "?" in DATABASE_URL else "?"
+    DATABASE_URL += f"{separator}sslmode=require"
+
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -32,9 +39,6 @@ class SubjectModel(Base):
     totalHours = Column(Integer)
     skipped = Column(Integer, default=0)
     last_skipped = Column(BigInteger, nullable=True)
-
-# Create tables
-Base.metadata.create_all(bind=engine)
 
 def get_db():
     db = SessionLocal()
@@ -59,15 +63,6 @@ def get_anthropic_client(api_key: str):
     return _anthropic_client
 
 
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://nomiss-lyart.vercel.app"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Migration logic: JSON to Postgres
 DB_FILE = "database.json"
@@ -92,7 +87,29 @@ def migrate_json_to_postgres():
     finally:
         db.close()
 
-migrate_json_to_postgres()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handles startup tasks like database migrations."""
+    try:
+        # Create tables if they don't exist
+        Base.metadata.create_all(bind=engine)
+        # Migrate data from JSON to the database
+        migrate_json_to_postgres()
+    except Exception as e:
+        logging.error(f"Startup database initialization failed: {e}")
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://nomiss-lyart.vercel.app"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class NewSubject(BaseModel):
     name: str
