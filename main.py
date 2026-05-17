@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 
 import anthropic
@@ -41,6 +42,22 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# Connection pooling for Anthropic client to reduce latency and reuse connections
+_anthropic_client = None
+_client_lock = threading.Lock()
+
+
+def get_anthropic_client(api_key: str):
+    """Lazy initialization of the Anthropic client with connection pooling."""
+    global _anthropic_client
+    if _anthropic_client is None:
+        with _client_lock:
+            if _anthropic_client is None:
+                _anthropic_client = anthropic.Anthropic(api_key=api_key)
+    return _anthropic_client
+
 
 app = FastAPI()
 
@@ -149,7 +166,8 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
             "reply": f"[Demo Mode] Missed: {missed_context}. Question: {chat.message}. (Attach API Key for real AI)"
         }
 
-    client = anthropic.Anthropic(api_key=api_key)
+    # Use the connection-pooled client instead of instantiating a new one
+    client = get_anthropic_client(api_key)
     content = []
 
     if chat.file_base64 and chat.file_type:
