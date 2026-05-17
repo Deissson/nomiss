@@ -111,6 +111,7 @@
                 <div
                     id="typing-indicator"
                     class="flex items-center mb-4 ml-4 hidden"
+                    aria-live="polite"
                 >
                     <span class="text-xs text-gray-600 dark:text-gray-400 mb-1 font-bold ml-1"
                         >AI is typing...</span
@@ -199,6 +200,7 @@
             }
 
             function clearChat() {
+                if (!confirm("Are you sure you want to clear your chat history?")) return;
                 const history = document.getElementById("chat-history");
                 history.innerHTML = "";
                 localStorage.removeItem(CHAT_HISTORY_KEY);
@@ -241,6 +243,7 @@
                 if (!isDash) {
                     // When switching to chat tab, ensure history is loaded and scrolled to bottom
                     loadChatHistory(); // This will load if not already, and scroll to bottom
+                    setTimeout(() => document.getElementById("chatMessage").focus(), 100);
                 }
             }
             function updateFileLabel() {
@@ -378,7 +381,7 @@
                         <div>
                             <div class="flex justify-between items-start">
                                 <h2 class="text-xl font-bold text-gray-900 dark:text-white">${sub.name}</h2>
-                                <button onclick="deleteSubject(${sub.id})" class="text-gray-500 hover:text-red-500 transition-colors" aria-label="Delete ${sub.name}">
+                                <button onclick="deleteSubject(${sub.id}, ${JSON.stringify(sub.name).replace(/"/g, '&quot;')})" class="text-gray-500 hover:text-red-500 transition-colors" aria-label="Delete ${sub.name}">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
                                 </button>
                             </div>
@@ -449,8 +452,8 @@
                 const data = await res.json();
                 fetchSubjects(data);
             }
-            async function deleteSubject(id) {
-                if (confirm("Delete?")) {
+            async function deleteSubject(id, name) {
+                if (confirm(`Delete "${name}"?`)) {
                     const res = await fetch(`${API_URL}/subjects/${id}`, {
                         method: "DELETE",
                     });
