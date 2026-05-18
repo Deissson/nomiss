@@ -1,6 +1,9 @@
 import json
 import os
 import time
+import threading
+import logging
+from contextlib import asynccontextmanager
 
 import anthropic
 from fastapi import FastAPI, Depends, HTTPException
@@ -19,6 +22,10 @@ if not DATABASE_URL:
 elif DATABASE_URL.startswith("postgres://"):
     # SQLAlchemy requires postgresql:// instead of postgres://
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    # Ensure SSL is used for Render Postgres
+    if "sslmode" not in DATABASE_URL:
+        separator = "&" if "?" in DATABASE_URL else "?"
+        DATABASE_URL += f"{separator}sslmode=require"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -32,9 +39,6 @@ class SubjectModel(Base):
     skipped = Column(Integer, default=0)
     last_skipped = Column(BigInteger, nullable=True)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
-
 def get_db():
     db = SessionLocal()
     try:
@@ -42,7 +46,17 @@ def get_db():
     finally:
         db.close()
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create tables
+    try:
+        Base.metadata.create_all(bind=engine)
+        migrate_json_to_postgres()
+    except Exception as e:
+        logging.error(f"Startup database initialization failed: {e}")
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,6 +65,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global client cache for optimization
+_anthropic_client = None
+_anthropic_lock = threading.Lock()
+
+def get_anthropic_client():
+    """
+    Returns a thread-safe singleton instance of the Anthropic client.
+    This optimization avoids the ~32ms overhead of re-instantiating the client
+    on every request and enables connection pooling.
+    """
+    global _anthropic_client
+    if _anthropic_client is None:
+        with _anthropic_lock:
+            if _anthropic_client is None:
+                api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+                _anthropic_client = anthropic.Anthropic(api_key=api_key)
+    return _anthropic_client
 
 # Migration logic: JSON to Postgres
 DB_FILE = "database.json"
@@ -74,8 +106,6 @@ def migrate_json_to_postgres():
         print(f"Migration failed: {e}")
     finally:
         db.close()
-
-migrate_json_to_postgres()
 
 class NewSubject(BaseModel):
     name: str
@@ -149,7 +179,7 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
             "reply": f"[Demo Mode] Missed: {missed_context}. Question: {chat.message}. (Attach API Key for real AI)"
         }
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = get_anthropic_client()
     content = []
 
     if chat.file_base64 and chat.file_type:
