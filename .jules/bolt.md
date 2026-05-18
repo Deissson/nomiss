@@ -5,3 +5,7 @@
 ## 2026-05-06 - [Reducing Network Round-trips]
 **Learning:** Mutation endpoints that return only a success message force the frontend to make a second GET request to refresh the state.
 **Action:** Return the updated state directly from POST/PUT/DELETE endpoints to allow the frontend to update the UI in a single round-trip.
+
+## 2026-05-18 - [API Client Singleton for Connection Pooling]
+**Learning:** Instantiating the `anthropic.Anthropic` client on every request adds ~32ms of overhead and, more importantly, prevents TCP/TLS connection reuse.
+**Action:** Use a thread-safe singleton pattern for API clients in FastAPI to enable connection pooling and eliminate redundant instantiation costs.

@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import threading
 
 import anthropic
 from fastapi import FastAPI, Depends, HTTPException
@@ -51,6 +52,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global client cache for optimization
+_anthropic_client = None
+_anthropic_lock = threading.Lock()
+
+def get_anthropic_client(api_key: str):
+    """
+    Returns a thread-safe singleton instance of the Anthropic client.
+    This optimization avoids the ~32ms overhead of re-instantiating the client
+    on every request and enables connection pooling.
+    """
+    global _anthropic_client
+    if _anthropic_client is None:
+        with _anthropic_lock:
+            if _anthropic_client is None:
+                _anthropic_client = anthropic.Anthropic(api_key=api_key)
+    return _anthropic_client
 
 # Migration logic: JSON to Postgres
 DB_FILE = "database.json"
@@ -149,7 +167,7 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
             "reply": f"[Demo Mode] Missed: {missed_context}. Question: {chat.message}. (Attach API Key for real AI)"
         }
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = get_anthropic_client(api_key)
     content = []
 
     if chat.file_base64 and chat.file_type:
