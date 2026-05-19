@@ -1,7 +1,9 @@
 import json
+import logging
 import os
 import threading
 import time
+from contextlib import asynccontextmanager
 
 import anthropic
 from fastapi import FastAPI, Depends, HTTPException
@@ -33,8 +35,42 @@ class SubjectModel(Base):
     skipped = Column(Integer, default=0)
     last_skipped = Column(BigInteger, nullable=True)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+# Migration logic: JSON to Postgres
+DB_FILE = "database.json"
+
+
+def migrate_json_to_postgres():
+    db = SessionLocal()
+    try:
+        if db.query(SubjectModel).count() == 0 and os.path.exists(DB_FILE):
+            with open(DB_FILE, "r") as f:
+                data = json.load(f)
+                for item in data:
+                    new_sub = SubjectModel(
+                        name=item["name"],
+                        totalHours=item["totalHours"],
+                        skipped=item.get("skipped", 0),
+                        last_skipped=item.get("last_skipped"),
+                    )
+                    db.add(new_sub)
+                db.commit()
+                print("Migration from JSON to Postgres completed.")
+    except Exception as e:
+        print(f"Migration failed: {e}")
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Performance: Initialize database and migrations in lifespan to avoid blocking health checks
+    try:
+        Base.metadata.create_all(bind=engine)
+        migrate_json_to_postgres()
+    except Exception as e:
+        logging.error(f"Startup error: {e}")
+    yield
+
 
 # Performance: Thread-safe singleton for Anthropic client to reuse connections
 _anthropic_client = None
@@ -57,7 +93,8 @@ def get_db():
     finally:
         db.close()
 
-app = FastAPI()
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,30 +104,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Migration logic: JSON to Postgres
-DB_FILE = "database.json"
-def migrate_json_to_postgres():
-    db = SessionLocal()
-    try:
-        if db.query(SubjectModel).count() == 0 and os.path.exists(DB_FILE):
-            with open(DB_FILE, "r") as f:
-                data = json.load(f)
-                for item in data:
-                    new_sub = SubjectModel(
-                        name=item["name"],
-                        totalHours=item["totalHours"],
-                        skipped=item.get("skipped", 0),
-                        last_skipped=item.get("last_skipped")
-                    )
-                    db.add(new_sub)
-                db.commit()
-                print("Migration from JSON to Postgres completed.")
-    except Exception as e:
-        print(f"Migration failed: {e}")
-    finally:
-        db.close()
-
-migrate_json_to_postgres()
 
 class NewSubject(BaseModel):
     name: str
