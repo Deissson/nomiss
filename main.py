@@ -1,6 +1,8 @@
 import json
 import os
 import time
+import logging
+from contextlib import asynccontextmanager
 
 import anthropic
 from fastapi import FastAPI, Depends, HTTPException
@@ -36,25 +38,12 @@ class SubjectModel(Base):
     skipped = Column(Integer, default=0)
     last_skipped = Column(BigInteger, nullable=True)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
-
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://nomiss-lyart.vercel.app"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Migration logic: JSON to Postgres
 DB_FILE = "database.json"
@@ -79,7 +68,25 @@ def migrate_json_to_postgres():
     finally:
         db.close()
 
-migrate_json_to_postgres()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create tables and migrate on startup
+    try:
+        Base.metadata.create_all(bind=engine)
+        migrate_json_to_postgres()
+    except Exception as e:
+        logging.error(f"Initialization failed: {e}")
+    yield
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://nomiss-lyart.vercel.app"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class NewSubject(BaseModel):
     name: str
