@@ -1,6 +1,9 @@
 import json
+import logging
 import os
+import threading
 import time
+from contextlib import asynccontextmanager
 
 import anthropic
 from fastapi import FastAPI, Depends, HTTPException
@@ -32,28 +35,10 @@ class SubjectModel(Base):
     skipped = Column(Integer, default=0)
     last_skipped = Column(BigInteger, nullable=True)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://nomiss-lyart.vercel.app"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Migration logic: JSON to Postgres
 DB_FILE = "database.json"
+
+
 def migrate_json_to_postgres():
     db = SessionLocal()
     try:
@@ -65,7 +50,7 @@ def migrate_json_to_postgres():
                         name=item["name"],
                         totalHours=item["totalHours"],
                         skipped=item.get("skipped", 0),
-                        last_skipped=item.get("last_skipped")
+                        last_skipped=item.get("last_skipped"),
                     )
                     db.add(new_sub)
                 db.commit()
@@ -75,7 +60,50 @@ def migrate_json_to_postgres():
     finally:
         db.close()
 
-migrate_json_to_postgres()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Performance: Initialize database and migrations in lifespan to avoid blocking health checks
+    try:
+        Base.metadata.create_all(bind=engine)
+        migrate_json_to_postgres()
+    except Exception as e:
+        logging.error(f"Startup error: {e}")
+    yield
+
+
+# Performance: Thread-safe singleton for Anthropic client to reuse connections
+_anthropic_client = None
+_client_lock = threading.Lock()
+
+
+def get_anthropic_client(api_key: str):
+    global _anthropic_client
+    if _anthropic_client is None:
+        with _client_lock:
+            if _anthropic_client is None:
+                _anthropic_client = anthropic.Anthropic(api_key=api_key)
+    return _anthropic_client
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://nomiss-lyart.vercel.app"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class NewSubject(BaseModel):
     name: str
@@ -132,10 +160,13 @@ def delete_subject(subject_id: int, db: Session = Depends(get_db)):
 
 @app.post("/chat")
 def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
-    subs = db.query(SubjectModel).filter(SubjectModel.skipped > 0).all()
-    missed_context = ", ".join(
-        [f"{s.name} ({s.skipped} missed)" for s in subs]
+    # Performance: Select only necessary columns to reduce database I/O
+    subs = (
+        db.query(SubjectModel.name, SubjectModel.skipped)
+        .filter(SubjectModel.skipped > 0)
+        .all()
     )
+    missed_context = ", ".join([f"{s.name} ({s.skipped} missed)" for s in subs])
 
     system_prompt = (
         f"You are a concise, expert high school tutor. The student has missed these classes: {missed_context}. "
@@ -149,7 +180,8 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
             "reply": f"[Demo Mode] Missed: {missed_context}. Question: {chat.message}. (Attach API Key for real AI)"
         }
 
-    client = anthropic.Anthropic(api_key=api_key)
+    # Performance: Reuse Anthropic client instance to benefit from connection pooling
+    client = get_anthropic_client(api_key)
     content = []
 
     if chat.file_base64 and chat.file_type:
