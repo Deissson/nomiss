@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from contextlib import asynccontextmanager
 
 import anthropic
 from fastapi import FastAPI, Depends, HTTPException
@@ -16,9 +17,13 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 # Fallback for local development if DATABASE_URL is not set
 if not DATABASE_URL:
     DATABASE_URL = "sqlite:///./database.db"
-elif DATABASE_URL.startswith("postgres://"):
-    # SQLAlchemy requires postgresql:// instead of postgres://
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+else:
+    if DATABASE_URL.startswith("postgres://"):
+        # SQLAlchemy requires postgresql:// instead of postgres://
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    if "postgresql" in DATABASE_URL and "sslmode" not in DATABASE_URL:
+        separator = "&" if "?" in DATABASE_URL else "?"
+        DATABASE_URL += f"{separator}sslmode=require"
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -32,25 +37,12 @@ class SubjectModel(Base):
     skipped = Column(Integer, default=0)
     last_skipped = Column(BigInteger, nullable=True)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
-
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
-
-app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://nomiss-lyart.vercel.app"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Migration logic: JSON to Postgres
 DB_FILE = "database.json"
@@ -75,7 +67,26 @@ def migrate_json_to_postgres():
     finally:
         db.close()
 
-migrate_json_to_postgres()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        # Create tables
+        Base.metadata.create_all(bind=engine)
+        # Migration logic: JSON to Postgres
+        migrate_json_to_postgres()
+    except Exception as e:
+        print(f"Startup error: {e}")
+    yield
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://nomiss-lyart.vercel.app"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class NewSubject(BaseModel):
     name: str
