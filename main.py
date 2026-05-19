@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import time
 
 import anthropic
@@ -34,6 +35,20 @@ class SubjectModel(Base):
 
 # Create tables
 Base.metadata.create_all(bind=engine)
+
+# Performance: Thread-safe singleton for Anthropic client to reuse connections
+_anthropic_client = None
+_client_lock = threading.Lock()
+
+
+def get_anthropic_client(api_key: str):
+    global _anthropic_client
+    if _anthropic_client is None:
+        with _client_lock:
+            if _anthropic_client is None:
+                _anthropic_client = anthropic.Anthropic(api_key=api_key)
+    return _anthropic_client
+
 
 def get_db():
     db = SessionLocal()
@@ -132,10 +147,13 @@ def delete_subject(subject_id: int, db: Session = Depends(get_db)):
 
 @app.post("/chat")
 def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
-    subs = db.query(SubjectModel).filter(SubjectModel.skipped > 0).all()
-    missed_context = ", ".join(
-        [f"{s.name} ({s.skipped} missed)" for s in subs]
+    # Performance: Select only necessary columns to reduce database I/O
+    subs = (
+        db.query(SubjectModel.name, SubjectModel.skipped)
+        .filter(SubjectModel.skipped > 0)
+        .all()
     )
+    missed_context = ", ".join([f"{s.name} ({s.skipped} missed)" for s in subs])
 
     system_prompt = (
         f"You are a concise, expert high school tutor. The student has missed these classes: {missed_context}. "
@@ -149,7 +167,8 @@ def chat_with_tutor(chat: ChatMessage, db: Session = Depends(get_db)):
             "reply": f"[Demo Mode] Missed: {missed_context}. Question: {chat.message}. (Attach API Key for real AI)"
         }
 
-    client = anthropic.Anthropic(api_key=api_key)
+    # Performance: Reuse Anthropic client instance to benefit from connection pooling
+    client = get_anthropic_client(api_key)
     content = []
 
     if chat.file_base64 and chat.file_type:
